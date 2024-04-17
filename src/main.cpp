@@ -22,11 +22,12 @@
 // #define SD_MISO 12
 // #define SD_MOSI 13
 
+bool bandera = false;
+
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
  
 MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN); // Instance of the class
-MFRC522::MIFARE_Key key; 
 
 // Init array that will store new NUID 
 byte nuidPICC[4];
@@ -45,17 +46,16 @@ void escribir(String Palabra){
 }
 
 void WriteFile(String path, String message){
-  // open the file. note that only one file can be open at a time,
-  // so you have to close this one before opening another.
+  // Se abre el documento con la ruta especifica
   myFile = SD.open(path, FILE_APPEND);
   // if the file opened okay, write to it:
   if (myFile) {
-    Serial.printf("Writing to %s ", path);
+    Serial.print("Digite el nombre del dueño de la tarjeta: ");
     while (Serial.available() == 0) {}
     String name = Serial.readString();
     myFile.println(message + "," + name);
     myFile.close(); // close the file:
-    Serial.println("completed.");
+    Serial.println(name);
   } 
   // if the file didn't open, print an error:
   else {
@@ -65,6 +65,7 @@ void WriteFile(String path, String message){
 }
 
 void ReadFile(const char * path, String uid){
+  bandera = false;
   // open the file for reading:
   myFile = SD.open(path);
   if (myFile) {
@@ -73,16 +74,18 @@ void ReadFile(const char * path, String uid){
     while (myFile.available()) {
       String line = myFile.readStringUntil('\n'); // Lee una línea completa del archivo
       if(line.startsWith(uid)){
+        bandera = true;
         int commaIndex = line.indexOf(','); // Busca la posición de la coma
         if(commaIndex != -1){
           String owner = line.substring(commaIndex + 1); // Extrae el dueño de la tarjeta
-          Serial.print("El dueño de la tarjeta es: ");
-          Serial.println(owner);
+          Serial.println("El dueño de la tarjeta es: " + owner);
+          escribir("Bienvenido " + owner);
           myFile.close(); // Cierra el archivo antes de salir de la función
           return; // Sale de la función después de encontrar la UID
         }
       }
     }
+    if(!bandera) escribir("No se encontro la tarjeta");
     myFile.close(); // close the file:
   } 
   else {
@@ -95,40 +98,45 @@ void setup() {
   Serial.begin(9600);
   SPI.begin(); // Init SPI bus
   rfid.PCD_Init(); // Init MFRC522
-
+  //Verificamos que funcione el montaje de la SD
   if (!SD.begin(SD_SS,SPI2)) {
     Serial.println("Error al inciar el Modulo MicroSD");
   }
-  Serial.println(F("This code scan the MIFARE Classsic UID."));
+  //Verificamos que funcione el montaje de la SSD1306
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
     Serial.println(F("SSD1306 allocation failed"));
   }
+  //Inicialisamos el display borrando todo lo que halla escrito
+  display.clearDisplay();
+  display.display();
+  //Iniciamos el proyecto
+  Serial.println("------------------------------------");
+  Serial.println("  Proyecto lector de Tarjetas RFID  ");
+  Serial.println("------------------------------------");
 }
  
 void loop() {
-
-  // Reset the loop if no new card present on the sensor/reader. This saves the entire process when idle.
-  if ( ! rfid.PICC_IsNewCardPresent() || ! rfid.PICC_ReadCardSerial())
-    return;
-
-  Serial.print(F("PICC type: "));
-  MFRC522::PICC_Type piccType = rfid.PICC_GetType(rfid.uid.sak);
-  Serial.println(rfid.PICC_GetTypeName(piccType));
-  Serial.println(F("A new card has been detected."));
-
+  // Se verifica que una tarjeta RFID este presente 
+  if ( ! rfid.PICC_IsNewCardPresent() || ! rfid.PICC_ReadCardSerial()) return;
+  //Una vez detectada la tarjeta RFID se procede a buscarla
+  Serial.println("Una tarjeta a sido detectada");
   String content = "";
   // Store UID into content String
   for (byte i = 0; i < 4; i++) {
     content.concat(String(rfid.uid.uidByte[i] < 0x10 ? " 0" : " "));
     content.concat(String(rfid.uid.uidByte[i], HEX));
   }
-    
-  Serial.print(F("The UID tag is:"));
-  Serial.println(content);
-  escribir(content);
-  //WriteFile("/test.txt", content);
+  Serial.println("The UID tag is: " + content);
+  //Se lee la base de datos para ver si la tarjeta existe 
   ReadFile("/test.txt",content);
-
+  //Si no se le pregunta al usuaria si la quiere añadir
+  if(!bandera){
+    Serial.println("Desea añadir la tarjeta a la base de datos.\n>>>>>>>> 1:Si , 2:No <<<<<<<<");
+    while (Serial.available() == 0) {}
+    int number = Serial.parseInt();
+    if(number) WriteFile("/test.txt", content);
+  }
+  Serial.print("-------- FIN DEL PROCESO --------");
   // Halt PICC
   rfid.PICC_HaltA();
 
