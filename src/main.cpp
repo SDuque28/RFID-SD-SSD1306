@@ -1,7 +1,8 @@
-#include <Arduino.h>
 #include <SD.h>
 #include <SPI.h>
+#include <WiFi.h>
 #include <Wire.h>
+#include <Arduino.h>
 #include <MFRC522.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -22,6 +23,11 @@
 // #define SD_MISO 12
 // #define SD_MOSI 13
 
+//Definicion de las variables WIFI
+const char* ssid = "Galaxy_A70";
+const char* password = "abcd1234";
+String packet = "";
+
 bool bandera = false;
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
@@ -29,8 +35,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
  
 MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN); // Instance of the class
 
-// Init array that will store new NUID 
-byte nuidPICC[4];
+WiFiUDP udp;
 
 File myFile;
 SPIClass SPI2(HSPI);
@@ -106,6 +111,18 @@ void setup() {
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
     Serial.println(F("SSD1306 allocation failed"));
   }
+  // Conectar a la red WiFi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Conectando a la red WiFi...");
+  }
+  Serial.println("Conexión exitosa");
+  // Comenzar el servidor UDP en el puerto 1234
+  udp.begin(1234);
+  // Imprimir la dirección IP asignada
+  Serial.println("Dirección IP: " + WiFi.localIP());
+
   //Inicialisamos el display borrando todo lo que halla escrito
   display.clearDisplay();
   display.display();
@@ -116,6 +133,18 @@ void setup() {
 }
  
 void loop() {
+  bandera = false;
+  // Escuchar por datos entrantes
+  if (udp.parsePacket()) {
+    // Leer el paquete recibido
+    char packetBuffer[255]; int len = udp.read(packetBuffer, 255);
+    if (len > 0) {
+      packetBuffer[len] = 0;
+      Serial.println("Mensaje recibido: " + String(packetBuffer));
+      packet = String(packetBuffer);
+      ReadFile("/test.txt",packet);
+    }
+  }
   // Se verifica que una tarjeta RFID este presente 
   if ( ! rfid.PICC_IsNewCardPresent() || ! rfid.PICC_ReadCardSerial()) return;
   //Una vez detectada la tarjeta RFID se procede a buscarla
@@ -134,9 +163,10 @@ void loop() {
     Serial.println("Desea añadir la tarjeta a la base de datos.\n>>>>>>>> 1:Si , 2:No <<<<<<<<");
     while (Serial.available() == 0) {}
     int number = Serial.parseInt();
+    Serial.read();
     if(number) WriteFile("/test.txt", content);
   }
-  Serial.print("-------- FIN DEL PROCESO --------");
+  Serial.println("--------- FIN DEL PROCESO ---------");
   // Halt PICC
   rfid.PICC_HaltA();
 
